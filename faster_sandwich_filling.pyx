@@ -19,6 +19,7 @@ def get_kernel_fn(kernel):
                    'biweight': biweight,
                    'triweight': triweight
     }
+
     if callable(kernel):
         return kernel
     try:
@@ -28,12 +29,11 @@ def get_kernel_fn(kernel):
         error_message = "Unknown kernel specified. Please provide one of these, or your own function: {}".format(known_kernels)
         raise KeyError(error_message)
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cpdef DTYPE_t[:] bartlett(DTYPE_t[:] dists, DTYPE_t cutoff):
     """Weight distances by the Bartlett (triangular) kernel.
 
@@ -51,12 +51,11 @@ cpdef DTYPE_t[:] bartlett(DTYPE_t[:] dists, DTYPE_t cutoff):
             weights[i] = 1 - (dists[i] / cutoff)
     return weights
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cpdef DTYPE_t[:] epanechnikov(DTYPE_t[:] dists, DTYPE_t cutoff):
     """Weight distances by the Epanechnikov kernel.
 
@@ -77,12 +76,11 @@ cpdef DTYPE_t[:] epanechnikov(DTYPE_t[:] dists, DTYPE_t cutoff):
             weights[i] = multiplier * (1 - inv_cutoff_sq * dists[i]**2)
     return weights
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cpdef DTYPE_t[:] biweight(DTYPE_t[:] dists, DTYPE_t cutoff):
     """Weight distances by the biweight (quartic) kernel.
 
@@ -142,12 +140,11 @@ cutoff = None):
 
 
 # TODO: is it faster to use mode = 'f' for row-oriented access?
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cdef inline DTYPE_t[:, :] multiply_XeeX_uniform(
 #np.ndarray[OBJECT, ndim = 1, mode = 'c'] neighbors,
 object neighbors,  # an numpy ndarray (dtype = 'O') of ndarrays
@@ -160,6 +157,7 @@ DTYPE_t[:, :] X):
     cdef ITYPE_t i, j, p, q, neighbor_j  # i indexes rows, j indexes neighbors as does neighbor_j, p and q index the random for loops I need to fill memoryviews
     cdef DTYPE_t e_i_div_N, e_j
     cdef DTYPE_t[:, :] X_iT_ei
+    cdef DTYPE_t[:] X_i, X_neighborj
     cdef DTYPE_t[:, :] tempsum_X_j_ej
     cdef ITYPE_t[:] neighbors_i
     cdef DTYPE_t[:, :] output = np.zeros((K, K), dtype = DTYPE)
@@ -174,16 +172,18 @@ DTYPE_t[:, :] X):
         tempsum_X_j_ej = zeros_row.copy()  # TODO(?) copy_fortran for the fortran-strided version
         with nogil:
             e_i_div_N = residuals[i] / N
+            X_i = X[i]
             for p in range(K):
-                X_iT_ei[p, 0] = X[i][p] * e_i_div_N  # assign to the rows, so it's effectively X[i, np.newaxis].T * e[i] / N
+                X_iT_ei[p, 0] = X_i[p] * e_i_div_N  # assign to the rows, so it's effectively X[i, np.newaxis].T * e[i] / N
             # Same as the previous two lines, using numpy's array broadcasting
             # X_i_ei = X[i, None].T * e_i  # Using None is equivalent to np.newaxis, but allows compiling.
             for j in range(neighbors_i.shape[0]):
                 neighbor_j = neighbors_i[j]
+                X_neighborj = X[neighbor_j]
                 e_j = residuals[neighbor_j]
                 # memoryviews don't have broadcasting, so have to loop here.  is this faster? maybe...
                 for q in range(K):
-                    tempsum_X_j_ej[0, q] = tempsum_X_j_ej[0, q] + X[neighbor_j][q] * e_j
+                    tempsum_X_j_ej[0, q] += X_neighborj[q] * e_j
                 # Same as the previous two lines, using numpy's array broadcasting:
                 # tempsum_X_j_ej += X[neighbor_j, None] * e_j  # Using None is equivalent to np.newaxis, but allows compiling.
         # Need the GIL back for the matrix multiplication:
@@ -191,12 +191,11 @@ DTYPE_t[:, :] X):
 
     return output #/ N  # would normally divide by N here, but it's easier to just divide e_i by N above.
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cdef inline DTYPE_t[:, :] multiply_XeeX_NONuniform(
 object neighbors,
 DTYPE_t[:] residuals,
@@ -204,12 +203,14 @@ DTYPE_t[:, :] X,
 str kernel,
 object distances,
 DTYPE_t cutoff):
+    assert cutoff is not None
     kernel_fn = get_kernel_fn(kernel)
     cdef ITYPE_t N = X.shape[0]
     cdef ITYPE_t K = X.shape[1]
     cdef ITYPE_t i, j, p, q, neighbor_j  # i indexes rows, j indexes neighbors as does neighbor_j, p and q index the random for loops I need to fill memoryviews
     cdef DTYPE_t e_i_div_N, e_j
     cdef DTYPE_t[:, :] X_iT_ei
+    cdef DTYPE_t[:] X_i, X_neighborj
     cdef DTYPE_t[:, :] tempsum_X_j_ej_weight
     cdef ITYPE_t[:] neighbors_i
     cdef DTYPE_t[:] distances_i, weights_i
@@ -227,15 +228,17 @@ DTYPE_t cutoff):
         tempsum_X_j_ej_weight = zeros_row.copy()  # TODO(?) copy_fortran for the fortran-strided version
         with nogil:
             e_i_div_N = residuals[i] / N
+            X_i = X[i]
             for p in range(K):
                 X_iT_ei[p, 0] = X[i][p] * e_i_div_N  # assign to the rows, so it's effectively X[i, np.newaxis].T * e[i] / N
             # Same as the previous two lines, using numpy's array broadcasting
             # X_i_ei = X[i, None].T * e_i  # Using None is equivalent to np.newaxis, but allows compiling.
             for j in range(neighbors_i.shape[0]):
                 neighbor_j = neighbors_i[j]
+                X_neighborj = X[neighbor_j]
                 e_j = residuals[neighbor_j]
                 for q in range(K):  # element-by-element:
-                    tempsum_X_j_ej_weight[0, q] = tempsum_X_j_ej_weight[0, q] + X[neighbor_j][q] * e_j * weights_i[j]
+                    tempsum_X_j_ej_weight[0, q] += X_neighborj[q] * e_j * weights_i[j]
                 # Same as the previous two lines, using numpy's array broadcasting:
                 # tempsum_X_j_ej_weight += X[neighbor_j, None] * e_j * weights_i  # (Using None is equivalent to np.newaxis, but allows compiling.)
         # Need the GIL back for the matrix multiplication:

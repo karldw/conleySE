@@ -11,6 +11,8 @@ import numpy as np
 cimport numpy as np
 np.import_array()  # required in order to use C-API
 
+# borrowed from geopy, who borrow from the International Union of Geodesy and Geophysics
+cdef DTYPE_t EARTH_RADIUS = 6371.009
 
 ######################################################################
 # Numpy 1.3-1.4 compatibility utilities
@@ -45,9 +47,9 @@ cdef inline np.ndarray _buffer_to_ndarray(DTYPE_t* x, np.npy_intp n):
 
 
 # some handy constants
-from libc.math cimport fabs, sqrt, exp, pow, cos, sin, asin, atan2
+from libc.math cimport fabs, sqrt, exp, pow, cos, sin, tan, asin, atan, atan2
 cdef DTYPE_t INF = np.inf
-
+cdef DTYPE_t pi = np.pi
 from typedefs cimport DTYPE_t, ITYPE_t, DITYPE_t, DTYPECODE
 from typedefs import DTYPE, ITYPE
 
@@ -87,7 +89,8 @@ METRIC_MAPPING = {'euclidean': EuclideanDistance,
                   'sokalsneath': SokalSneathDistance,
                   'haversine': HaversineDistance,
                   'pyfunc': PyFuncDistance,
-                  'greatcircle': GreatCircleDistance}
+                  'greatcircle': GreatCircleDistance,
+                  'vincenty': VincentyDistance}
 
 
 def get_valid_metric_ids(L):
@@ -1127,7 +1130,7 @@ cdef inline double radians(double degrees) nogil:
 # KDW
 #------------------------------------------------------------
 # Great Circle Distance (2 dimensional)
-# D(x, y) = 6371.009*atan2(\sqrt{(\cos(x2)*\sin(y2-y1))^2 +
+# D(x, y) = EARTH_RADIUS*atan2(\sqrt{(\cos(x2)*\sin(y2-y1))^2 +
 #           (\cos(x1)*\sin(x2)-\sin(x1)*\cos(x2)*\cos(y2-y1))^2},
 #           \sin(x1)*\sin(x2)+\cos(x1)*\cos(x2)*\cos(y2-y1))
 cdef class GreatCircleDistance(DistanceMetric):
@@ -1138,16 +1141,12 @@ cdef class GreatCircleDistance(DistanceMetric):
     to be the latitude, the second is the longitude, both given in _degrees_.
     The dimension of the points must be 2:
     .. math::
-        D(x, y) = 6371.009*atan2(\sqrt{(\cos(x2)*\sin(y2-y1))^2 +
+        D(x, y) = EARTH_RADIUS*atan2(\sqrt{(\cos(x2)*\sin(y2-y1))^2 +
                 (\cos(x1)*\sin(x2)-\sin(x1)*\cos(x2)*\cos(y2-y1))^2},
                 \sin(x1)*\sin(x2)+\cos(x1)*\cos(x2)*\cos(y2-y1))
 
-    Footnote from the original geopy code:
-    Great-circle distance uses a spherical model of the earth, using the mean
-    earth radius as defined by the International Union of Geodesy and
-    Geophysics, (2*a + b)/3 = 6371.0087714150598 kilometers approx 6371.009 km
-    (for WGS-84), resulting in an error of up to about 0.5%.
     """
+
     cdef inline DTYPE_t rdist(self, DTYPE_t* x1, DTYPE_t* x2,
                               ITYPE_t size) nogil except -1:
         if size != 2:
@@ -1177,7 +1176,7 @@ cdef class GreatCircleDistance(DistanceMetric):
                               ITYPE_t size) nogil except -1:
         if size != 2:
             with gil:
-                raise ValueError("Haversine distance only valid in 2 dimensions")
+                raise ValueError("Great circle distance only valid in 2 dimensions")
         cdef DTYPE_t lat1 = radians(x1[0])
         cdef DTYPE_t lng1 = radians(x1[1])
         cdef DTYPE_t lat2 = radians(x2[0])
@@ -1195,17 +1194,136 @@ cdef class GreatCircleDistance(DistanceMetric):
                    (cos_lat1 * sin_lat2 -
                     sin_lat1 * cos_lat2 * cos_delta_lng) ** 2),
               sin_lat1 * sin_lat2 + cos_lat1 * cos_lat2 * cos_delta_lng)
-        return 6371.009 * d
+        return EARTH_RADIUS * d
 
-    # TODO: find a good reduced distance measure, beyond the 6371.009 factor.
+    # TODO: find a good reduced distance measure, beyond the EARTH_RADIUS factor.
     cdef inline DTYPE_t _rdist_to_dist(self, DTYPE_t rdist) except -1:
-        return rdist * 6371.009
+        return rdist * EARTH_RADIUS
 
     cdef inline DTYPE_t _dist_to_rdist(self, DTYPE_t dist) nogil except -1:
-        return dist / 6371.009
+        return dist / EARTH_RADIUS
 
     def rdist_to_dist(self, rdist):
-        return rdist * 6371.009
+        return rdist * EARTH_RADIUS
 
     def dist_to_rdist(self, dist):
-        return dist / 6371.009
+        return dist / EARTH_RADIUS
+
+
+# KDW
+#------------------------------------------------------------
+# Vincenty Distance (2 dimensional)
+cdef class VincentyDistance(DistanceMetric):
+    """Vincenty (elipsoidal Earth) Distance
+
+    The Vincenty distance is the physical distance, in kilometers, two
+    points on the surface of Earth.  The first value of each point is assumed
+    to be the latitude, the second is the longitude, both given in _degrees_.
+    The dimension of the points must be 2:
+    """
+
+    cdef inline DTYPE_t rdist(self, DTYPE_t* x1, DTYPE_t* x2,
+                              ITYPE_t size) nogil except -1:
+        if size != 2:
+            with gil:
+                raise ValueError("Vincenty distance only valid in 2 dimensions")
+
+        # WGS-84 ellipsoid, borrowed from geopy.
+        cdef DTYPE_t ellip_major = 6378.137
+        cdef DTYPE_t ellip_minor = 6356.7523142
+        cdef DTYPE_t ellip_flat = 1 / 298.25722356
+
+        cdef DTYPE_t tol = 10e-12
+
+        cdef DTYPE_t lat1 = radians(x1[0])
+        cdef DTYPE_t lng1 = radians(x1[1])
+        cdef DTYPE_t lat2 = radians(x2[0])
+        cdef DTYPE_t lng2 = radians(x2[1])
+        cdef DTYPE_t delta_lng = lng2 - lng1
+
+
+        cdef DTYPE_t reduced_lat1 = atan((1 - ellip_flat) * tan(lat1))
+        cdef DTYPE_t reduced_lat2 = atan((1 - ellip_flat) * tan(lat2))
+
+        cdef DTYPE_t sin_reduced1 = sin(reduced_lat1)
+        cdef DTYPE_t cos_reduced1 = cos(reduced_lat1)
+        cdef DTYPE_t sin_reduced2 = sin(reduced_lat2)
+        cdef DTYPE_t cos_reduced2 = cos(reduced_lat2)
+
+        cdef DTYPE_t lambda_lng = delta_lng
+        cdef DTYPE_t lambda_prime = 2 * pi
+
+        cdef ITYPE_t iter_limit = 20
+        cdef ITYPE_t i = 0
+
+
+        cdef DTYPE_t sin_lambda_lng, cos_lambda_lng, sin_sigma, cos_sigma
+        cdef DTYPE_t sigma, sin_alpha, cos_sq_alpha, cos2_sigma_m, C
+
+        while (fabs(lambda_lng - lambda_prime) > tol and i <= iter_limit) or (i == 0):
+            i += 1
+
+            sin_lambda_lng = sin(lambda_lng)
+            cos_lambda_lng = cos(lambda_lng)
+
+            sin_sigma = sqrt(
+                (cos_reduced2 * sin_lambda_lng) ** 2 +
+                (cos_reduced1 * sin_reduced2 -
+                 sin_reduced1 * cos_reduced2 * cos_lambda_lng) ** 2
+            )
+            if sin_sigma == 0.0:
+                return 0.0  # Coincident points
+
+            cos_sigma = (
+                sin_reduced1 * sin_reduced2 +
+                cos_reduced1 * cos_reduced2 * cos_lambda_lng
+            )
+            sigma = atan2(sin_sigma, cos_sigma)
+
+            sin_alpha = cos_reduced1 * cos_reduced2 * sin_lambda_lng / sin_sigma
+            cos_sq_alpha = 1 - sin_alpha ** 2
+
+            if cos_sq_alpha != 0.0:
+                cos2_sigma_m = cos_sigma - 2 * (sin_reduced1 * sin_reduced2 / cos_sq_alpha)
+            else:
+                cos2_sigma_m = 0.0  # Equatorial line
+
+            C = ellip_flat / 16.0 * cos_sq_alpha * (4 + ellip_flat * (4 - 3 * cos_sq_alpha))
+
+            lambda_prime = lambda_lng
+            lambda_lng = (delta_lng + (1 - C) * ellip_flat * sin_alpha * (sigma
+                + C * sin_sigma * (cos2_sigma_m + C * cos_sigma * (-1 + 2 *
+                cos2_sigma_m ** 2))))
+        else:  # this is an else on the while loop
+            if i > iter_limit:
+                with gil:
+                    raise ValueError("Vincenty formula failed to converge! (Try using the great circle metric instead.)")
+        cdef DTYPE_t u_sq = cos_sq_alpha * (ellip_major ** 2 - ellip_minor ** 2) / ellip_minor ** 2
+
+        cdef DTYPE_t A = 1 + u_sq / 16384.0 * (
+            4096 + u_sq * (-768 + u_sq * (320 - 175 * u_sq))
+        )
+        cdef DTYPE_t B = u_sq / 1024.0 * (256 + u_sq * (-128 + u_sq * (74 - 47 * u_sq)))
+
+        cdef DTYPE_t delta_sigma = (B * sin_sigma * (cos2_sigma_m + B / 4.0 *
+            (cos_sigma * (-1 + 2 * cos2_sigma_m ** 2) - B / 6.0 * cos2_sigma_m
+             * (-3 + 4 * sin_sigma ** 2) * (-3 + 4 * cos2_sigma_m ** 2 ))))
+
+        cdef DTYPE_t s = ellip_minor * A * (sigma - delta_sigma)
+        return s
+
+    cdef inline DTYPE_t dist(self, DTYPE_t* x1, DTYPE_t* x2,
+                              ITYPE_t size) nogil except -1:
+        return self.rdist(x1, x2, size)
+
+    # I have no idea how the Vincenty formula works, so I have no idea what
+    # shortcuts we could take for rdist.  If you want something faster, use the
+    # great circle metric.
+    cdef inline DTYPE_t _rdist_to_dist(self, DTYPE_t rdist) except -1:
+        return rdist
+    cdef inline DTYPE_t _dist_to_rdist(self, DTYPE_t dist) nogil except -1:
+        return dist
+    def rdist_to_dist(self, rdist):
+        return rdist
+    def dist_to_rdist(self, dist):
+        return dist
