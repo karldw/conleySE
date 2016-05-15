@@ -17,14 +17,15 @@ cdef inline double radians(double degrees):
 
 
 #cdef inline double great_circle(double[:] pt1, double[:] pt2):
-def great_circle(double[:] pt1, double[:] pt2):
+cpdef great_circle(double[:] pt1, double[:] pt2):
     """Take two points on earth and return a distance.
 
     This function assumes a spherical earth, which is accurate to about 0.5%.
     Look at Vincenty distances if you want to do better.
 
     pt1 and p2 should be arrays of dimension (2,), ordered latitude then
-    longitude, both measured in degrees in the range (-180, 180].
+    longitude, both measured in degrees. Latitude is in the range [-90, 90],
+    longitude is in the range (-180, 180].
     The output, d, is in kilometers.
     """
     cdef double lat1 = radians(pt1[0])
