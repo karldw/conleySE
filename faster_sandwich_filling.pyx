@@ -8,6 +8,11 @@ from typedefs cimport DTYPE_t, ITYPE_t
 from typedefs import DTYPE, ITYPE
 np.import_array()
 
+
+
+class CutoffError(ValueError):
+    pass
+
 def get_kernel_fn(kernel):
     """Get a kernel for the pointwise distances."""
     kernel_dict = {'bartlett': bartlett,
@@ -165,9 +170,14 @@ DTYPE_t[:, :] X):
     cdef DTYPE_t[:, :] zeros_col_K = zeros_row.T
     # Calculate sum_i^N [ X_i * e_i * (sum_j^n X_j' * e_j) ]
     # for i and j near one another
+    # 'bint' is a cython type, short for 'boolean int' to make C and python
+    # booleans play nicely.
+    cdef bint every_point_is_a_neighbor_of_every_other = True
     for i in range(N):
         # neighbors is a weird N-length ndarray of variable-length ndarrays, so have to use the GIL to parse.
         neighbors_i = neighbors[i]
+        if neighbors_i.shape[0] < N:
+            every_point_is_a_neighbor_of_every_other = False
         X_iT_ei = zeros_col_K.copy()  # awful variable name stands for X[i].T * e[i]
         tempsum_X_j_ej = zeros_row.copy()  # TODO(?) copy_fortran for the fortran-strided version
         with nogil:
@@ -188,7 +198,8 @@ DTYPE_t[:, :] X):
                 # tempsum_X_j_ej += X[neighbor_j, None] * e_j  # Using None is equivalent to np.newaxis, but allows compiling.
         # Need the GIL back for the matrix multiplication:
         output += np.dot(X_iT_ei, tempsum_X_j_ej)
-
+    if every_point_is_a_neighbor_of_every_other:
+        raise CutoffError("Every point is a neighbor of every other. You must use a smaller cutoff value.")
     return output #/ N  # would normally divide by N here, but it's easier to just divide e_i by N above.
 
 @cython.embedsignature(True)  # embed function signature in docstring
@@ -219,9 +230,12 @@ DTYPE_t cutoff):
     cdef DTYPE_t[:, :] zeros_col_K = zeros_row.T
     # Calculate sum_i^N [ X_i * e_i * (sum_j^n X_j' * e_j * weights_i,j) ]
     # for i and j near one another
+    cdef bint every_point_is_a_neighbor_of_every_other = True
     for i in range(N):
         # neighbors is a weird N-length ndarray of variable-length ndarrays, so have to use the GIL to parse.
         neighbors_i = neighbors[i]
+        if neighbors_i.shape[0] < N:
+            every_point_is_a_neighbor_of_every_other = False
         distances_i = distances[i]
         weights_i = kernel_fn(distances_i, cutoff)
         X_iT_ei = zeros_col_K.copy()  # awful variable name stands for X[i].T * e[i]
@@ -243,6 +257,8 @@ DTYPE_t cutoff):
                 # tempsum_X_j_ej_weight += X[neighbor_j, None] * e_j * weights_i  # (Using None is equivalent to np.newaxis, but allows compiling.)
         # Need the GIL back for the matrix multiplication:
         output += np.dot(X_iT_ei, tempsum_X_j_ej_weight)
+    if every_point_is_a_neighbor_of_every_other:
+        raise CutoffError("Every point is a neighbor of every other. You must use a smaller cutoff value.")
     return output #/ N  # would normally divide by N here, but it's easier to just divide e_i by N above.
 
     #
