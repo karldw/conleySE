@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # cython: profile=True
 # import cython
 cimport cython
@@ -9,8 +10,9 @@ from typedefs import DTYPE, ITYPE
 np.import_array()
 
 
-
-class CutoffError(ValueError):
+class GeographyError(ValueError):
+    pass
+class CutoffError(GeographyError):
     pass
 
 def get_kernel_fn(kernel):
@@ -95,6 +97,7 @@ cpdef DTYPE_t[:] biweight(DTYPE_t[:] dists, DTYPE_t cutoff):
     Input: A memoryview of distances (float64) and a cutoff (float64).
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
+    raise NotImplementedError
     cdef ITYPE_t i
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:
@@ -118,6 +121,7 @@ cpdef DTYPE_t[:] triweight(DTYPE_t[:] dists, DTYPE_t cutoff):
     Input: A memoryview of distances (float64) and a cutoff (float64).
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
+    raise NotImplementedError
     cdef ITYPE_t i
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:

@@ -6,9 +6,9 @@ from distance import great_circle #, vincenty
 import feather
 from core import cross_section as conley_cross_section
 from core import CutoffError
-from numpy.testing import assert_array_almost_equal
+from numpy.testing import assert_allclose
 from hypothesis import given, assume, note
-from hypothesis.strategies import floats, tuples, integers, one_of, composite
+from hypothesis.strategies import floats, tuples, integers, one_of, composite, just
 from hypothesis.extra.numpy import arrays
 from geopy.distance import EARTH_RADIUS
 
@@ -63,39 +63,36 @@ def conley_unfancy(y, X, lat_long, cutoff):
 def test_quakes():
     quakes = feather.read_dataframe('tests/datasets/quakes.feather')
     quakes_lat = quakes['lat'].reshape(-1, 1)
-    quakes_long = quakes['long'].reshape(-1, 1)
+    quakes_long = quakes['long'].reshape(-1, 1) - 180  # https://stackoverflow.com/questions/19879746/why-are-datasetquakes-longtitude-values-above-180
     quakes_lat_long = np.hstack((quakes_lat, quakes_long))
-    quakes_y = quakes['depth'].reshape(-1, 1)  # make a (N,) vector into a (N,1) array
-    mag_col = quakes['mag'].reshape(-1, 1)
-    quakes_X = np.hstack((np.ones_like(mag_col), mag_col))
+    # quakes_y = quakes['depth'].reshape(-1, 1)  # make a (N,) vector into a (N,1) array
+    # mag_col = quakes['mag'].reshape(-1, 1)
+    # quakes_X = np.hstack((np.ones_like(mag_col), mag_col))
     quakes_cutoff = 100
 
     #correct_results = conley_unfancy(quakes_y, quakes_X, quakes_lat_long, quakes_cutoff)
     correct_results = np.array((108.723235, 19.187791)).reshape(-1, 1)  # faster testing
-    fast_results = conley_cross_section(quakes_y, quakes_X,
-        quakes_lat_long, quakes_cutoff)
-    assert_array_almost_equal(correct_results, fast_results)
+    # fast_results = conley_cross_section(quakes_y, quakes_X,
+    #     quakes_lat_long, quakes_cutoff)
+    fast_results = conley_cross_section("depth ~ mag", quakes, quakes_lat_long, quakes_cutoff)
+    assert_allclose(correct_results, fast_results)
 
 @given(POSSIBLE_CUTOFFS)
 def test_quakes_random_cutoff(quakes_cutoff):
     if RUN_SLOW_TESTS:
         quakes = feather.read_dataframe('tests/datasets/quakes.feather')
         quakes_lat = quakes['lat'].reshape(-1, 1)
-        quakes_long = quakes['long'].reshape(-1, 1)
+        quakes_long = quakes['long'].reshape(-1, 1) - 180
         quakes_lat_long = np.hstack((quakes_lat, quakes_long))
         quakes_y = quakes['depth'].reshape(-1, 1)  # make a (N,) vector into a (N,1) array
         mag_col = quakes['mag'].reshape(-1, 1)
         quakes_X = np.hstack((np.ones_like(mag_col), mag_col))
         correct_results = conley_unfancy(quakes_y, quakes_X, quakes_lat_long, quakes_cutoff)
         try:
-            fast_results = conley_cross_section(quakes_y, quakes_X,
-                quakes_lat_long, quakes_cutoff)
+            fast_results = conley_cross_section("depth ~ mag", quakes, quakes_lat_long, quakes_cutoff)
         except CutoffError:
             assume(False)  # This cutoff was too big for the dataset.
-        assert_array_almost_equal(correct_results, fast_results)
-
-def test_new_testspatial():
-    new_testspatial = feather.read_dataframe('tests/datasets/new_testspatial.feather')
+        assert_allclose(correct_results, fast_results)
 
 #
 #
@@ -110,46 +107,99 @@ def unique_rows(a):
     unique_a = a[idx]
     return(unique_a)
 
+
 @composite
 def generate_geographic_data_no_nan(draw):
-    # N = draw(integers(min_value = 1, max_value = 200))  # number of points (rows)
-    # K = draw(integers(min_value = 1, max_value = min(max(N, 2) - 1, 30)))  # number of covariates
     N = 3  # really small example
     K = 1
+    #TODO: uncomment these lines instead:
+    # N = draw(integers(min_value = 1, max_value = 200))  # number of points (rows)
+    # K = draw(integers(min_value = 1, max_value = min(max(N, 2) - 1, 30)))  # number of covariates
     latitudes  = draw(arrays(np.float, (N, 1), elements =
         floats(min_value = -90, max_value = 90)))
     longitudes = draw(arrays(np.float, (N, 1), elements =
         floats(min_value = -180 + EPSILON, max_value = 180)))
     lat_long = np.hstack((latitudes, longitudes))
     assume(unique_rows(lat_long).shape[0] > 2)  # TODO: raise a warning when there's only one location
-    # speed things up by not checking for nans
-    # xy_min = -9999999999999
-    # xy_max = abs(xy_min)
-    numbers = one_of(floats(min_value = -1/np.finfo(float).eps, max_value = 1/np.finfo(float).eps), integers())
-    # y = draw(arrays(np.float, (N, 1), elements = one_of(floats(allow_nan = False, allow_infinity = False), integers())))
-    # X = draw(arrays(np.float, (N, K), elements = one_of(floats(allow_nan = False, allow_infinity = False), integers())))
+    numbers = one_of(floats(min_value = -1 / EPSILON ** 2, max_value = 1 / EPSILON ** 2),
+                     integers())
     y = draw(arrays(np.float, (N, 1), elements = numbers))
-    X = draw(arrays(np.float, (N, 1), elements = numbers))
+    X = draw(arrays(np.float, (N, K), elements = numbers))
     assume(np.logical_or(np.abs(X) > EPSILON, X == 0).all())
     assume(np.logical_or(np.abs(y) > EPSILON, y == 0).all())
     cutoff = draw(POSSIBLE_CUTOFFS)
     return (y, X, lat_long, cutoff)
 
-@given(generate_geographic_data_no_nan())
-def notest_random_data(packed_data):
+
+@composite
+def generate_geographic_data_with_nan(draw):
+    N = 3  # really small example
+    K = 1
+    #TODO: uncomment these lines instead:
+    # N = draw(integers(min_value = 1, max_value = 200))  # number of points (rows)
+    # K = draw(integers(min_value = 1, max_value = min(max(N, 2) - 1, 30)))  # number of covariates
+
+    latitudes  = draw(arrays(np.float, (N, 1), elements =
+        floats(min_value = -90, max_value = 90)))
+    longitudes = draw(arrays(np.float, (N, 1), elements =
+        floats(min_value = -180 + EPSILON, max_value = 180)))
+    lat_long = np.hstack((latitudes, longitudes))
+    assume(unique_rows(lat_long).shape[0] > 2)  # TODO: raise a warning when there's only one location
+    numbers = one_of(floats(min_value = -1 / EPSILON ** 2, max_value = 1 / EPSILON ** 2),
+                     integers(), just(np.nan), just(np.inf), just(-np.inf))
+    y = draw(arrays(np.float, (N, 1), elements = numbers))
+    X = draw(arrays(np.float, (N, K), elements = numbers))
+    assume(np.logical_or(np.abs(X) > EPSILON, X == 0).all())
+    assume(np.logical_or(np.abs(y) > EPSILON, y == 0).all())
+    cutoff = draw(POSSIBLE_CUTOFFS)
+    return (y, X, lat_long, cutoff)
+
+
+
+
+def using_random_data(packed_data):
+    """Base function to run tests with randomized data.
+
+    Will be decorated by Hypothesis, using arrays with and without nans / infinity.
+    """
+    #TODO: make things numerically accurate!
+    # This test doesn't pass yet; there are issues with numerical accuracy.
+    # Since I'm not great with numerical programming, I don't know whether my reference
+    # code or my real code is more correct.
     y, X, lat_long, cutoff = packed_data  # seems to be necessary to pass the tuple in like this
     try:
         correct_results = conley_unfancy(y, X, lat_long, cutoff)
     except np.linalg.linalg.LinAlgError:
-    # Don't worry about these failures:
-    # - LinAlgError happens when Hypothesis comes up with a singular matrix.
+        # Don't worry about these failures:
+        # - LinAlgError happens when Hypothesis comes up with a singular matrix.
         assume(False)
     assume(not np.isnan(correct_results).any())
     assert all(correct_results >= 0)  # really should be true, just checking I haven't done anything dumb
+
+    #TODO: I think the following block can be replaced by something like
+    # conley_cross_section((y, X), data=None, ...)
+    # This is really ugly, but I want to be able to use patsy for conley_cross_section,
+    # and I only have numpy arrays here, so I need to create a named, combined array, then
+    # pass both the names and the combined array.
+    x_names = ['x_' + str(xcol) for xcol in range(X.shape[1])]
+    data_names = ['y', *x_names]
+    dt = {'names': data_names,
+          'formats': np.repeat(np.float, len(data_names))}
+    data = np.empty(y.shape[0], dtype = dt)
+    data['y'] = y[:,0]
+    for xcol, x_name in enumerate(x_names):
+        data[x_name] = X[:, xcol]
+    data_formula = 'y ~ 0 + ' + ' + '.join(x_names)
+    # Formula looks like y ~ 0 + x_0 + x_1 + x_2 ...
+    # The zero prevents patsy from adding an intercept.
     try:
-        fast_results = conley_cross_section(y, X, lat_long, cutoff)
-    except CutoffError:
-        # CutoffError happens when Hypothesis chooses a cutoff large enough to make every point a neighbor of every other.
+        fast_results = conley_cross_section(data_formula, data, lat_long,
+                                            cutoff, kernel = 'uniform')
+    except (CutoffError, np.linalg.linalg.LinAlgError):
+        # CutoffError happens when Hypothesis chooses a cutoff large enough to make every
+        # point a neighbor of every other.
+        # LinAlgError happens when the X matrix doesn't have full rank (slightly different
+        # test than the LinAlgError above, I think).
         assume(False)
 
     # Don't worry if correct_results has a very small value and fast_results gives nan
@@ -157,8 +207,14 @@ def notest_random_data(packed_data):
     correct_results_small = correct_results < EPSILON
     correct_small_and_fast_nan = np.logical_and(fast_results_nans, correct_results_small)
     assume(not correct_small_and_fast_nan.any())
-
     # assert our real claim:
-    assert_array_almost_equal(correct_results, fast_results)
+    assert_allclose(correct_results, fast_results, rtol = EPSILON, atol = EPSILON)
 
-#TODO test with nans
+
+@given(generate_geographic_data_no_nan())
+def NOtest_random_data_no_nan(packed_data):
+    using_random_data(packed_data)
+
+@given(generate_geographic_data_with_nan())
+def NOtest_random_data_with_nan(packed_data):
+    using_random_data(packed_data)
