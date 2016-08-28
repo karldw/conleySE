@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding: utf-8
 """ cythonize
 
 Cythonize pyx files into C files as needed.

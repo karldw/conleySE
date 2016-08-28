@@ -1,3 +1,5 @@
+
+# coding: utf-8
 """
 The :mod:`sklearn.exceptions` module includes all custom warnings and error
 classes used across scikit-learn.

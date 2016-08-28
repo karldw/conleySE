@@ -1,3 +1,5 @@
+
+# coding: utf-8
 """Tests, copied directly from scikit-learn.
 
 (But removed kernel density estimation.)"""

@@ -1,5 +1,4 @@
 
-
 # coding: utf-8
 import numpy as np
 from distance import great_circle  # , vincenty

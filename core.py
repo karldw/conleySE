@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+
+# coding: utf-8
 import numpy as np
 from ball_tree import BallTree  # TODO: force python to only look locally for import
 from faster_sandwich_filling import multiply_XeeX, CutoffError, GeographyError
@@ -22,7 +23,7 @@ def check_geography(N, lat_long, cutoff):
                    "The first column is latitude, the second is longitude, both measured"
                    " in degrees.")
         raise GeographyError(err_msg)
-    lat_abs_max = np.abs(np.max(lat_long[:, 0]))
+    lat_abs_max = np.max(np.abs(lat_long[:, 0]))
     long_max = np.max(lat_long[:, 1])
     long_min = np.min(lat_long[:, 1])
     if lat_abs_max > 90:

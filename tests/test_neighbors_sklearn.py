@@ -1,3 +1,5 @@
+
+# coding: utf-8
 from itertools import product
 import numpy as np
 from scipy.sparse import (bsr_matrix, coo_matrix, csc_matrix, csr_matrix,
