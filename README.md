@@ -12,6 +12,7 @@
 # Panel
 - Warn about unbalanced data?
 - Add caching for distance calcs
+- Use improved NW errors? https://www.federalreserve.gov/pubs/ifdp/2012/1060/ifdp1060.pdf
 
 # Testing
 - hypothesis

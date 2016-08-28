@@ -117,7 +117,7 @@ def generate_geographic_data_no_nan(draw):
     # (N is number of rows, K is number of covariates)
     # N = draw(integers(min_value = 1, max_value = 200))
     # K = draw(integers(min_value = 1, max_value = min(max(N, 2) - 1, 30)))
-    latitudes = draw(arrays(np.float, (N, 1),  elements = floats(  # nopep8
+    latitudes = draw(arrays(np.float, (N, 1), elements = floats(
         min_value = -90, max_value = 90)))
     longitudes = draw(arrays(np.float, (N, 1), elements = floats(
         min_value = -180 + EPSILON, max_value = 180)))

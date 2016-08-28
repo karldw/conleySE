@@ -124,7 +124,7 @@ def parse_lat_long(lat_long, data):
     If lat_long is a tuple of strings,
     """
     if (len(lat_long) == 2 and isinstance(lat_long[0], str) and
-        isinstance(lat_long[1], str)):  # nopep8
+        isinstance(lat_long[1], str)):  # noqa: E129
 
         if isinstance(lat_long, str):
             # If lat_long is a string, lat_long[0] and lat_long[1] will be string slices
@@ -210,7 +210,7 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
         'triweight'. (Bartlett is the same as triangle. Quartic is the same as
         biweight.)
     """
-    from cachey import Cache
+    from cachey import Cache  # TODO: do I need caching?  (I don't think so?)
     cache = Cache(1e9)  # max cache is 1 GB  TODO: is this reasonable?
     y, X = dmatrices(formula_like, data, eval_env = 1, NA_action = 'raise')
     # TODO: handle cases where people provide weird formulas?
@@ -230,6 +230,7 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
 
     # TODO: I have no idea if this leaf_size is reasonable.
     # If running out of memory, divide N by a larger number.
+    # TODO: consider limiting available memory
     # 40 is the default.
     leaf_size = max(40, nobs // 1000)
 
@@ -240,6 +241,7 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
     residuals = (y - X @ betahat)
 
     BallTree_cached = cache.memoize(BallTree)
+    # TODO: allow for vincenty
     balltree = BallTree_cached(lat_long, metric = 'greatcircle', leaf_size = leaf_size)
     query_radius_cached = cache.memoize(balltree.query_radius)
     if dist_kernel == 'uniform':

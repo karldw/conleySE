@@ -195,14 +195,24 @@ def test_new_testspatial():
     new_testspatial = feather.read_dataframe('tests/datasets/new_testspatial.feather')
 
     # TODO: to be comparable with Thiemo, should add year and FIPS fixed effects
+    # (The comparison here is still fine, but the numbers will be different
+    # than in the blog post.)
     formula = 'EmpClean ~ HDD + unemploymentrate - 1'
+    # Note: lat/long are mislabeled in the dataset. To deal with that, reverse
+    # the order in the lat_long name tuple.
+    lat_long = ('longitude', 'latitude')
+    dist_cutoff = 500
+    time_cutoff = 5
+    group_varname = 'FIPS'
+    time_varname = 'year'
+
     correct_results = conley_panel_unfancy(
-        formula, new_testspatial, lat_long =
-        ('latitude', 'longitude'), group_varname = 'FIPS', time_varname = 'year',
-        dist_cutoff = 500, time_cutoff = 5)
+        formula, new_testspatial, lat_long = lat_long,
+        group_varname = group_varname, time_varname = time_varname,
+        dist_cutoff = dist_cutoff, time_cutoff = time_cutoff)
 
     fast_results = conley_panel(
-        formula, new_testspatial, lat_long = ('latitude', 'longitude'),
-        time = 'year', group = 'FIPS', dist_cutoff = 500,
-        time_cutoff = 5, dist_kernel = 'uniform', time_kernel = 'bartlett')
+        formula, new_testspatial, lat_long = lat_long,
+        time = time_varname, group = group_varname, dist_cutoff = dist_cutoff,
+        time_cutoff = time_cutoff, dist_kernel = 'uniform', time_kernel = 'bartlett')
     np.testing.assert_allclose(fast_results, correct_results)

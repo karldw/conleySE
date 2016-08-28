@@ -14,17 +14,17 @@ import numbers
 import numpy as np
 import scipy.sparse as sp
 
-#from ..externals import six  #KDW
-import six  #KDW
-#from ..utils.fixes import signature  #KDW
-#from .deprecation import deprecated  #KDW
-#from ..exceptions import DataConversionWarning as _DataConversionWarning  #KDW
-from exceptions import DataConversionWarning as _DataConversionWarning  #KDW
-#from ..exceptions import NonBLASDotWarning as _NonBLASDotWarning  #KDW
-from exceptions import NonBLASDotWarning as _NonBLASDotWarning  #KDW
-#from ..exceptions import NotFittedError as _NotFittedError  #KDW
+# from ..externals import six  # KDW
+import six  # KDW
+# from ..utils.fixes import signature  # KDW
+# from .deprecation import deprecated  # KDW
+# from ..exceptions import DataConversionWarning as _DataConversionWarning  # KDW
+from exceptions import DataConversionWarning as _DataConversionWarning  # KDW
+# from ..exceptions import NonBLASDotWarning as _NonBLASDotWarning  # KDW
+from exceptions import NonBLASDotWarning as _NonBLASDotWarning  # KDW
+# from ..exceptions import NotFittedError as _NotFittedError  # KDW
 
-#KDW:
+# KDW:
 # @deprecated("DataConversionWarning has been moved into the sklearn.exceptions"
 #             " module. It will not be available here from version 0.19")
 # class DataConversionWarning(_DataConversionWarning):
@@ -55,8 +55,8 @@ def _assert_all_finite(X):
     # First try an O(n) time, O(1) space solution for the common case that
     # everything is finite; fall back to O(n) space np.isfinite to prevent
     # false positives from overflow in sum method.
-    if (X.dtype.char in np.typecodes['AllFloat'] and not np.isfinite(X.sum())
-            and not np.isfinite(X).all()):
+    if (X.dtype.char in np.typecodes['AllFloat'] and not np.isfinite(X.sum()) and
+            not np.isfinite(X).all()):
         raise ValueError("Input contains NaN, infinity"
                          " or a value too large for %r." % X.dtype)
 
@@ -91,8 +91,8 @@ def as_float_array(X, copy=True, force_all_finite=True):
     XT : {array, sparse matrix}
         An array of type np.float
     """
-    if isinstance(X, np.matrix) or (not isinstance(X, np.ndarray)
-                                    and not sp.issparse(X)):
+    if isinstance(X, np.matrix) or (not isinstance(X, np.ndarray) and
+                                    not sp.issparse(X)):
         return check_array(X, ['csr', 'csc', 'coo'], dtype=np.float64,
                            copy=copy, force_all_finite=force_all_finite,
                            ensure_2d=False)
@@ -249,8 +249,8 @@ def _ensure_sparse_format(spmatrix, accept_sparse, dtype, copy,
         dtype = spmatrix.dtype
 
     changed_format = False
-    if (isinstance(accept_sparse, (list, tuple))
-            and spmatrix.format not in accept_sparse):
+    if (isinstance(accept_sparse, (list, tuple)) and
+            spmatrix.format not in accept_sparse):
         # create new with correct sparse
         spmatrix = spmatrix.asformat(accept_sparse[0])
         changed_format = True
@@ -578,17 +578,17 @@ def check_random_state(seed):
                      ' instance' % seed)
 
 
-def has_fit_parameter(estimator, parameter):
-    """Checks whether the estimator's fit method supports the given parameter.
-
-    Examples
-    --------
-    >>> from sklearn.svm import SVC
-    >>> has_fit_parameter(SVC(), "sample_weight")
-    True
-
-    """
-    return parameter in signature(estimator.fit).parameters
+# def has_fit_parameter(estimator, parameter):
+#     """Checks whether the estimator's fit method supports the given parameter.
+#
+#     Examples
+#     --------
+#     >>> from sklearn.svm import SVC
+#     >>> has_fit_parameter(SVC(), "sample_weight")
+#     True
+#
+#     """
+#     return parameter in signature(estimator.fit).parameters
 
 
 def check_symmetric(array, tol=1E-10, raise_warning=True,
@@ -645,7 +645,7 @@ def check_symmetric(array, tol=1E-10, raise_warning=True,
 
     return array
 
-## KDW:
+# KDW:
 # def check_is_fitted(estimator, attributes, msg=None, all_or_any=all):
 #     """Perform is_fitted validation for estimator.
 #

@@ -9,19 +9,19 @@ import os
 myPath = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, myPath + '/../')
 
-from hypothesis import given, assume  # nopep8
-from hypothesis.strategies import floats, tuples  # nopep8
+from hypothesis import given, assume  # noqa: E402
+from hypothesis.strategies import floats, tuples  # noqa: E402
 
-import numpy as np  # nopep8
-from numpy.testing import assert_array_almost_equal  # nopep8
-from geopy.distance import great_circle as geopy_great_circle  # nopep8
-from geopy.distance import vincenty as geopy_vincenty  # nopep8
+import numpy as np  # noqa: E402
+from numpy.testing import assert_array_almost_equal  # noqa: E402
+from geopy.distance import great_circle as geopy_great_circle  # noqa: E402
+from geopy.distance import vincenty as geopy_vincenty  # noqa: E402
 # from hypothesis.extra import numpy
 # import scipy
 # from scipy.spatial.distance import cdist
-from dist_metrics import DistanceMetric  # nopep8
+from dist_metrics import DistanceMetric  # noqa: E402
 # EARTH_RADIUS is the same value used in dist_metrics
-from geopy.distance import EARTH_RADIUS  # nopep8
+from geopy.distance import EARTH_RADIUS  # noqa: E402
 # from sklearn.neighbors.dist_metrics import DistanceMetric
 # from nose import SkipTest
 
