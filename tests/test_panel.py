@@ -12,6 +12,7 @@ from hypothesis.strategies import floats
 # from hypothesis.extra.numpy import arrays
 from geopy.distance import EARTH_RADIUS
 from patsy import dmatrices
+from statsmodels.formula.api import ols
 
 EPSILON = np.sqrt(np.finfo(float).eps)  # 1.4901161193847656e-08
 POSSIBLE_CUTOFFS = floats(min_value = EPSILON, max_value = EARTH_RADIUS * np.pi)
@@ -147,7 +148,8 @@ def conley_panel_unfancy(formula, data, lat_long, group_varname = 'FIPS',
     Testing with bartlett kernel in time and a uniform kernel in space.
 
     """
-    # TODO: IS THIS RIGHT?
+    # TODO: use ols instead
+    raise NotImplementedError
     y, X = dmatrices(formula, data)
     time = data[time_varname]
     group = data[group_varname]
@@ -197,10 +199,12 @@ def test_new_testspatial():
     # TODO: to be comparable with Thiemo, should add year and FIPS fixed effects
     # (The comparison here is still fine, but the numbers will be different
     # than in the blog post.)
-    formula = 'EmpClean ~ HDD + unemploymentrate - 1'
+
+    # formula = 'EmpClean ~ HDD + unemploymentrate - 1'
+    formula = 'EmpClean ~ HDD + unemploymentrate + FIPS + year'
     # Note: lat/long are mislabeled in the dataset. To deal with that, reverse
     # the order in the lat_long name tuple.
-    lat_long = ('longitude', 'latitude')
+    lat_long = ('longitude', 'latitude')  # not a mistake!
     dist_cutoff = 500
     time_cutoff = 5
     group_varname = 'FIPS'
@@ -210,7 +214,7 @@ def test_new_testspatial():
         formula, new_testspatial, lat_long = lat_long,
         group_varname = group_varname, time_varname = time_varname,
         dist_cutoff = dist_cutoff, time_cutoff = time_cutoff)
-
+    print(correct_results)
     fast_results = conley_panel(
         formula, new_testspatial, lat_long = lat_long,
         time = time_varname, group = group_varname, dist_cutoff = dist_cutoff,

@@ -6,6 +6,7 @@ from faster_sandwich_filling import multiply_XeeX, CutoffError, GeographyError
 import warnings
 # import statsmodels.api as sm
 from patsy import dmatrices, dmatrix
+from statsmodels.formula.api import ols
 
 
 def check_geography(N, lat_long, cutoff):
@@ -118,57 +119,82 @@ def cross_section(formula_like, data, lat_long, cutoff, kernel = 'uniform'):
     return se
 
 
-def parse_lat_long(lat_long, data):
-    """Pull latitude and longitude columns, if required.
+def parse_lat_long(lat_long, data):  # noqa: C901
+    """Flexibly acquire latitude-longitude array.
 
-    If lat_long is a tuple of strings,
+    Very important: you should run `check_geography` on the resulting array.
+
+    Options:
+        1) `lat_long` is a tuple of names to pull from `data`.
+        2) `lat_long` is a tuple of arrays/vectors/DataFrames.
+        3) Almost anything else.
+    Returns:
+        1) An (N, 2) array with columns pulled by name from `data`.
+        2) An (N, 2) array with columns stacked horizontally.
+        3) Whatever you provided.
+
+    If `lat_long` is a tuple of strings, I assume they're in the order
+    (latitude, longitude) and use patsy to pull those columns out of the data.
+
+    If `lat_long` is a tuple of arrays/vectors/DataFrames, I assume they're in the order
+    (latitude, longitude) and use np.hstack to paste them together.
+
+    Otherwise, just return things.
     """
-    if (len(lat_long) == 2 and isinstance(lat_long[0], str) and
-        isinstance(lat_long[1], str)):  # noqa: E129
 
-        if isinstance(lat_long, str):
-            # If lat_long is a string, lat_long[0] and lat_long[1] will be string slices
-            # (letters), not the variable names we're aiming for.
-            raise ValueError("Please provide two strings for lat_long.")
-
-        # Then we're (hopefully) dealing with column names.
+    def _pull_string_cols(lat_long, data):
         lat_colname = lat_long[0]
         long_colname = lat_long[1]
         lat_long_patsy_form = '0 + ' + lat_colname + ' + ' + long_colname
         try:
-            lat_long = dmatrix(lat_long_patsy_form, data)
+            return dmatrix(lat_long_patsy_form, data)
         except KeyError:
             error_str = ("Tried to find latitude and longitude columns '{}' and '{}' in "
                          "data, but failed. Please provide a valid column name or simply"
                          " pass an array.".format(lat_colname, long_colname))
             raise KeyError(error_str)
-    elif isinstance(lat_long, (tuple, list)):
-        # If provided as a tuple/list of columns, check that the columns seem okay
-        # and combine them.
-        lat = lat_long[0]
-        lon = lat_long[1]
-        try:
-            lat_shape = lat.shape
-            lon_shape = lon.shape
-        except AttributeError:
-            err_msg = ("It looks like you provided latitude and longitude in a list or "
-                       "tuple. In that case, I'm expecting the elements of the tuple to "
-                       "be arrays, but these aren't.")
-            raise ValueError(err_msg)
-        # check that shapes conform:
-        if len(lat_shape) < 2:
-            lat = lat.reshape(-1, 1)
-            lat_shape = lat.shape
-        if len(lon_shape) < 2:
-            lon = lon.reshape(-1, 1)
-            lon_shape = lon.shape
-        if lat_shape != lon_shape:
-            err_msg = ("Latitude and longitude arrays don't match. Their shapes are "
-                       "{} and {}.".format(lat_shape, lon_shape))
-            raise ValueError(err_msg)
-        # and finally, combine to one array
-        lat_long = np.hstack((lat, lon))
-    return lat_long
+
+    if isinstance(lat_long, (str, bytes, bytearray)):
+        # If lat_long is a string, lat_long[0] and lat_long[1] will be string slices
+        # (letters), not the variable names we're aiming for.
+        raise ValueError("Please provide *two* strings for lat_long.")
+
+    if isinstance(lat_long, (tuple, list)):
+        if len(lat_long) != 2:
+            raise ValueError("Expecting lat_long to be a tuple of 2 variables.")
+        if (isinstance(lat_long[0], str) and isinstance(lat_long[1], str)):
+            lat_long_array = _pull_string_cols(lat_long, data)
+        elif (isinstance(lat_long[0], bytes) and isinstance(lat_long[1], bytes)):
+            lat_long = [name.decode('utf-8') for name in lat_long]
+            lat_long_array = _pull_string_cols(lat_long, data)
+        else:
+            # Else, we're probably given a tuple of two columns.  Check that they
+            # seem okay and combine them.
+            lat = lat_long[0]
+            lon = lat_long[1]
+            try:
+                lat_shape = lat.shape
+                lon_shape = lon.shape
+            except AttributeError:
+                err_msg = ("It looks like you provided latitude and longitude in a list "
+                           "or tuple. In that case, I'm expecting the elements of the "
+                           "tuple to be arrays, but these aren't.")
+                raise ValueError(err_msg)
+
+            # check that shapes conform:
+            if len(lat_shape) < 2:
+                # reshape so np.hstack works like I want
+                lat = lat.reshape(-1, 1)
+                lat_shape = lat.shape
+            if len(lon_shape) < 2:
+                lon = lon.reshape(-1, 1)
+                lon_shape = lon.shape
+            # and finally, combine to one array
+            lat_long_array = np.hstack((lat, lon))
+    else:  # i.e. not a list/tuple
+        # don't bother with error checking here; that happens in check_geography anyway
+        lat_long_array = lat_long
+    return lat_long_array
 
 
 def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = None,
@@ -244,14 +270,20 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
     # TODO: allow for vincenty
     balltree = BallTree_cached(lat_long, metric = 'greatcircle', leaf_size = leaf_size)
     query_radius_cached = cache.memoize(balltree.query_radius)
+
+    # START HERE.
+    # The code in multiply_XeeX wasn't written for panel data.
+    # Think about how I want to do the joint time/space deal.
     if dist_kernel == 'uniform':
         neighbors = query_radius_cached(lat_long, r = dist_cutoff)
-        filling = multiply_XeeX(neighbors, residuals, X, dist_kernel)
+        raise NotImplementedError()
+        # filling = multiply_XeeX(neighbors, residuals, X, dist_kernel)
     else:
         neighbors, neighbor_distances = query_radius_cached(
             lat_long, r = dist_cutoff, return_distance = True)
-        filling = multiply_XeeX(neighbors, residuals, X, dist_kernel,
-                                distances = neighbor_distances, cutoff = dist_cutoff)
+        raise NotImplementedError()
+        # filling = multiply_XeeX(neighbors, residuals, X, dist_kernel,
+        #                         distances = neighbor_distances, cutoff = dist_cutoff)
         del neighbor_distances
     del balltree, neighbors, y, residuals
 

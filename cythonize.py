@@ -54,7 +54,7 @@ except NameError:
     WindowsError = None
 
 
-def cythonize(cython_file, gen_file):
+def cythonize(cython_file, gen_file):  # noqa: C901
     try:
         from Cython.Compiler.Version import version as cython_version
         from distutils.version import LooseVersion
