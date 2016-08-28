@@ -35,12 +35,12 @@ def cmp_version(version1, version2):
 class TestMetrics:
     # def __init__(self, n1=20, n2=25, d=4, zero_frac=0.5,
     #              rseed=0, dtype=np.float64):
-    n1=20
-    n2=25
-    d=4
-    zero_frac=0.5
-    rseed=0
-    dtype=np.float64
+    n1 = 20
+    n2 = 25
+    d = 4
+    zero_frac = 0.5
+    rseed = 0
+    dtype = np.float64
     np.random.seed(rseed)
     X1 = np.random.random((n1, d)).astype(dtype)
     X2 = np.random.random((n2, d)).astype(dtype)
@@ -53,20 +53,20 @@ class TestMetrics:
     VI = np.dot(V, V.T)
 
     metrics = {'euclidean': {},
-                    'cityblock': {},
-                    'minkowski': dict(p=(1, 1.5, 2, 3)),
-                    'chebyshev': {},
-                    'seuclidean': dict(V=(np.random.random(d),)),
-                    'wminkowski': dict(p=(1, 1.5, 3),
-                                       w=(np.random.random(d),)),
-                    'mahalanobis': dict(VI=(VI,)),
-                    'hamming': {},
-                    'canberra': {},
-                    'braycurtis': {}}
+               'cityblock': {},
+               'minkowski': dict(p=(1, 1.5, 2, 3)),
+               'chebyshev': {},
+               'seuclidean': dict(V=(np.random.random(d),)),
+               'wminkowski': dict(p=(1, 1.5, 3),
+                                  w=(np.random.random(d),)),
+               'mahalanobis': dict(VI=(VI,)),
+               'hamming': {},
+               'canberra': {},
+               'braycurtis': {}}
 
     bool_metrics = ['matching', 'jaccard', 'dice',
-                         'kulsinski', 'rogerstanimoto', 'russellrao',
-                         'sokalmichener', 'sokalsneath']
+                    'kulsinski', 'rogerstanimoto', 'russellrao',
+                    'sokalmichener', 'sokalsneath']
 
     def test_cdist(self):
         for metric, argdict in self.metrics.items():
@@ -143,8 +143,8 @@ class TestMetrics:
 
 def test_haversine_metric():
     def haversine_slow(x1, x2):
-        return 2 * np.arcsin(np.sqrt(np.sin(0.5 * (x1[0] - x2[0])) ** 2
-                                     + np.cos(x1[0]) * np.cos(x2[0]) *
+        return 2 * np.arcsin(np.sqrt(np.sin(0.5 * (x1[0] - x2[0])) ** 2 +
+                                     np.cos(x1[0]) * np.cos(x2[0]) *
                                      np.sin(0.5 * (x1[1] - x2[1])) ** 2))
 
     X = np.random.random((10, 2))

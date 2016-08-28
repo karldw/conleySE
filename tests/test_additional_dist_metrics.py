@@ -1,28 +1,31 @@
 # import itertools
-#import pickle
+# import pickle
 
 # Cludge to import the correct module in the build path.
-import sys, os
+import sys
+import os
 myPath = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, myPath + '/../')
 
-from hypothesis import given, assume
-from hypothesis.strategies import floats, tuples #, integers
+from hypothesis import given, assume  # nopep8
+from hypothesis.strategies import floats, tuples  # nopep8
 
-import numpy as np
-from numpy.testing import assert_array_almost_equal
-from geopy.distance import great_circle as geopy_great_circle
-from geopy.distance import vincenty as geopy_vincenty
+import numpy as np  # nopep8
+from numpy.testing import assert_array_almost_equal  # nopep8
+from geopy.distance import great_circle as geopy_great_circle  # nopep8
+from geopy.distance import vincenty as geopy_vincenty  # nopep8
 # from hypothesis.extra import numpy
 # import scipy
 # from scipy.spatial.distance import cdist
-from dist_metrics import DistanceMetric
-from geopy.distance import EARTH_RADIUS  # same value used in dist_metrics
-#from sklearn.neighbors.dist_metrics import DistanceMetric
-#from nose import SkipTest
+from dist_metrics import DistanceMetric  # nopep8
+# EARTH_RADIUS is the same value used in dist_metrics
+from geopy.distance import EARTH_RADIUS  # nopep8
+# from sklearn.neighbors.dist_metrics import DistanceMetric
+# from nose import SkipTest
 
 hypoth_lat_long = tuples(floats(min_value = -90, max_value = 90),
                          floats(min_value = -179.999999999999999, max_value = 180))
+
 
 @given(hypoth_lat_long, hypoth_lat_long)
 def test_great_circle_metric(pt1, pt2):
@@ -37,7 +40,8 @@ def test_great_circle_metric(pt1, pt2):
             D2[i, j] = geopy_great_circle(x1, x2).km
 
     if EARTH_RADIUS == 6371.009:
-        assert_array_almost_equal(D1, D2)  # geopy is changing its EARTH_RADIUS and I've set up with the newer one
+        # geopy is changing its EARTH_RADIUS and I've set up with the newer one
+        assert_array_almost_equal(D1, D2)
     # but in either case, can run this version:
     assert_array_almost_equal(great_circle.dist_to_rdist(D1),
                               D2 / EARTH_RADIUS)

@@ -14,7 +14,7 @@ from sklearn.utils.testing import assert_true
 from sklearn.utils.testing import assert_warns
 from sklearn.utils.testing import ignore_warnings
 from sklearn.utils.testing import assert_greater
-from sklearn.utils.validation import check_random_state
+# from sklearn.utils.validation import check_random_state
 from sklearn.metrics.pairwise import pairwise_distances
 from sklearn import neighbors, datasets
 

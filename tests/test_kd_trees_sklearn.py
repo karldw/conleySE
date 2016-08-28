@@ -8,7 +8,7 @@ from sklearn.neighbors.kd_tree import (KDTree, NeighborsHeap,
                                        simultaneous_sort, kernel_norm,
                                        nodeheap_sort, DTYPE, ITYPE)
 from sklearn.neighbors.dist_metrics import DistanceMetric
-from sklearn.utils.testing import SkipTest, assert_allclose
+# from sklearn.utils.testing import SkipTest, assert_allclose
 
 V = np.random.random((3, 3))
 V = np.dot(V, V.T)

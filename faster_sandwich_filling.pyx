@@ -177,6 +177,8 @@ DTYPE_t[:, :] X):
     # 'bint' is a cython type, short for 'boolean int' to make C and python
     # booleans play nicely.
     cdef bint every_point_is_a_neighbor_of_every_other = True
+    # TODO: is it better to convert neighbors to a sparse matrix and use scipy's
+    # sparse multiplication?
     for i in range(N):
         # neighbors is a weird N-length ndarray of variable-length ndarrays, so have to use the GIL to parse.
         neighbors_i = neighbors[i]

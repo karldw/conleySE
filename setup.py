@@ -4,6 +4,7 @@ from glob import glob
 import shutil
 import subprocess
 
+
 def generate_cython():
     cwd = os.path.abspath(os.path.dirname(__file__))
     print("Cythonizing sources")
@@ -12,6 +13,7 @@ def generate_cython():
     if p != 0:
         raise RuntimeError("Running cythonize failed!")
 
+
 def configuration(parent_package='', top_path=None):
     import numpy
     from numpy.distutils.misc_util import Configuration
@@ -19,7 +21,8 @@ def configuration(parent_package='', top_path=None):
     generate_cython()
     config = Configuration('', parent_package, top_path)
     libraries = []
-    my_compile_args = ['-Og', '-march=native']  # TODO: switch from Og (debugging) to O3 (optimised)
+    # TODO: switch from Og (debugging) to O3 (optimised)
+    my_compile_args = ['-Og', '-march=native']
     if os.name == 'posix':
         libraries.append('m')
 
@@ -56,9 +59,9 @@ def configuration(parent_package='', top_path=None):
     #                      extra_compile_args = my_compile_args)
 
     config.add_extension('faster_sandwich_filling',
-                        sources=['faster_sandwich_filling.c'],
-                        include_dirs=[numpy.get_include()],
-                        libraries=libraries)
+                         sources=['faster_sandwich_filling.c'],
+                         include_dirs=[numpy.get_include()],
+                         libraries=libraries)
     return config
 
 if __name__ == "__main__":
