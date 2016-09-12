@@ -8,6 +8,9 @@
 - check if the haversine formula, when it's inaccurate, gives an answer large enough that it doesn't matter (and therefore it's unnecessary to use the full `atan2` formula)
     - if so, how much faster is it?
 - Figure out how to parse missing data?
+- Consider making the residuals all at once: e = I-(X(X'X) ^(-1)X'y
+- It's probably overkill to use the heavy-duty haversine function; I think there's no difference for points within the same quadrant of the globe. (Test this.)
+- Consider using (pysparse's skyline format)[http://pysparse.sourceforge.net/formats.html#sparse-skyline-format] to work with symmetric sparse matrices
 
 # Panel
 - Warn about unbalanced data?

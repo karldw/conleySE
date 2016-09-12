@@ -100,7 +100,8 @@ def cross_section(formula_like, data, lat_long, cutoff, kernel = 'uniform'):
     betahat, _, rank, _ = np.linalg.lstsq(X, y)
     if rank != X.shape[1]:
         raise np.linalg.LinAlgError('X matrix is not full rank!')
-    residuals = (y - X @ betahat)[0]
+    del rank
+    residuals = (y - X @ betahat)
     balltree = BallTree(lat_long, metric = 'greatcircle', leaf_size = leaf_size)
     if kernel == 'uniform':
         neighbors = balltree.query_radius(lat_long, r = cutoff)
