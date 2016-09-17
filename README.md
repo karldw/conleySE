@@ -28,7 +28,7 @@
 - https://github.com/thehackerwithin/berkeley/blob/b34ea54f7ff1dd9300ce7aa23cb78caf487a9a02/cython_spring16/setup_cy.py
 - https://github.com/scikit-learn/scikit-learn/blob/06bf797c0deabe2a2f166d19abbd0c305da4d123/doc/developers/performance.rst
 - http://opexanalytics.com/technical-note-on-calculating-many-distances-for-analytics-projects/
-
+- https://stackoverflow.com/questions/34189761/distribute-pre-compiled-cython-code-to-windows
 
 # Done
 - if I don't import `geopy` directly, test against that
