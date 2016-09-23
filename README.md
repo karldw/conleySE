@@ -11,6 +11,7 @@
 - Consider making the residuals all at once: e = I-(X(X'X) ^(-1)X'y
 - It's probably overkill to use the heavy-duty haversine function; I think there's no difference for points within the same quadrant of the globe. (Test this.)
 - Consider using (pysparse's skyline format)[http://pysparse.sourceforge.net/formats.html#sparse-skyline-format] to work with symmetric sparse matrices
+- Consider just importing the ball tree from scikit-learn, then scaling the unit sphere (with haversine distance) to the earth. (or, actually, downsizing the search radius to fit a unit sphere). The downside there is I couldn't support Vincenty distance.
 
 # Panel
 - Warn about unbalanced data?
