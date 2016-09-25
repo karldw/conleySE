@@ -2,18 +2,18 @@
 # coding: utf-8
 import numpy as np
 from distance import great_circle
-import feather
 from core import cross_section as conley_cross_section
-from core import CutoffError
+from core import CutoffError, neighbors_to_sparse, get_kernel_fn
 from numpy.testing import assert_allclose
 from hypothesis import given, assume
-from hypothesis.strategies import floats, integers, one_of, composite, just
+from hypothesis.strategies import floats, integers, one_of, composite, just, sampled_from
 from hypothesis.extra.numpy import arrays
 from geopy.distance import EARTH_RADIUS
 
 EPSILON = np.sqrt(np.finfo(float).eps)  # 1.4901161193847656e-08
 POSSIBLE_CUTOFFS = floats(min_value = EPSILON, max_value = EARTH_RADIUS * np.pi)
 RUN_SLOW_TESTS = False
+KNOWN_KERNELS = {'bartlett', 'epanechnikov', 'quartic', 'uniform'}
 
 
 def great_circle_one_to_many(latlong_array, latlong_point):
@@ -62,13 +62,7 @@ def conley_unfancy(y, X, lat_long, cutoff):
 
 
 def test_quakes():
-    quakes = feather.read_dataframe('tests/datasets/quakes.feather')
-    quakes_lat = quakes['lat'].reshape(-1, 1)
-    # Subtract 180 because they've done 0 to 360.  See:
-    # https://stackoverflow.com/questions/19879746/why-are-datasetquakes-longtitude-values-above-180
-    quakes_long = quakes['long'].reshape(-1, 1) - 180
-    quakes_lat_long = np.hstack((quakes_lat, quakes_long))
-    cutoff = 100
+    quakes_y, quakes_X, quakes, quakes_lat_long, _, _, _, cutoff = get_quakes_data()
 
     # correct_results = conley_unfancy(quakes_y, quakes_X, quakes_lat_long, cutoff)
     correct_results = np.array((108.723235, 19.187791)).reshape(-1, 1)  # faster testing
@@ -80,13 +74,8 @@ def test_quakes():
 @given(POSSIBLE_CUTOFFS)
 def test_quakes_random_cutoff(cutoff):
     if RUN_SLOW_TESTS:
-        quakes = feather.read_dataframe('tests/datasets/quakes.feather')
-        quakes_lat = quakes['lat'].reshape(-1, 1)
-        quakes_long = quakes['long'].reshape(-1, 1) - 180
-        quakes_lat_long = np.hstack((quakes_lat, quakes_long))
-        quakes_y = quakes['depth'].reshape(-1, 1)  # make a (N,) into a (N,1) array
-        mag_col = quakes['mag'].reshape(-1, 1)
-        quakes_X = np.hstack((np.ones_like(mag_col), mag_col))
+        quakes_y, quakes_X, quakes, quakes_lat_long, _, _, _, cutoff = get_quakes_data()
+
         correct_results = conley_unfancy(quakes_y, quakes_X, quakes_lat_long, cutoff)
         try:
             fast_results = conley_cross_section("depth ~ mag", quakes,
@@ -226,3 +215,102 @@ def NOtest_random_data_no_nan(packed_data):
 @given(generate_geographic_data_with_nan())
 def NOtest_random_data_with_nan(packed_data):
     using_random_data(packed_data)
+
+
+# from scipy.sparse import diags
+def get_quakes_data():
+    from ball_tree import BallTree
+    from patsy import dmatrices
+    import feather
+    quakes = feather.read_dataframe('tests/datasets/quakes.feather')
+    quakes_lat = quakes['lat'].reshape(-1, 1)
+    # Subtract 180 because they've done 0 to 360.  See:
+    # https://stackoverflow.com/questions/19879746/why-are-datasetquakes-longtitude-values-above-180
+    quakes_long = quakes['long'].reshape(-1, 1) - 180
+    quakes_lat_long = np.hstack((quakes_lat, quakes_long))
+    cutoff = 100
+
+    balltree = BallTree(quakes_lat_long, metric = 'greatcircle')
+    neighbors, distances = balltree.query_radius(
+        quakes_lat_long, r = cutoff, return_distance = True)
+
+    y, X = dmatrices(data=quakes, formula_like='depth ~ mag')
+    betahat, _, rank, _ = np.linalg.lstsq(X, y)
+    if rank != X.shape[1]:
+        raise np.linalg.LinAlgError('X matrix is not full rank!')
+    del rank
+    residuals = (y - X @ betahat)
+    return y, X, quakes, quakes_lat_long, residuals, neighbors, distances, cutoff
+
+
+@given(sampled_from(KNOWN_KERNELS))
+def test_neighbors_to_sparse(kernel):
+    _, _, _, _, _, neighbors, distances, cutoff = get_quakes_data()
+
+    from scipy.sparse import find
+    neighbors_sparse_nodistance = neighbors_to_sparse(neighbors)
+    neighbors_sparse_withdistance = neighbors_to_sparse(neighbors, kernel,
+                                                        distances, cutoff)
+    kernel_fn = get_kernel_fn(kernel)
+    for i in range(neighbors.shape[0]):
+        # get the indexes that will sort the row
+        neighbors_row_argsort = np.argsort(neighbors[i])
+        neighbors_row_sorted = neighbors[i][neighbors_row_argsort]
+
+        distance_row_sorted = kernel_fn(distances[i][neighbors_row_argsort], cutoff)
+
+        # test that the neighbor indexes are the same
+        np.testing.assert_equal(find(neighbors_sparse_nodistance.getrow(i))[1],
+                                     neighbors_row_sorted)
+        np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[1],
+                                     neighbors_row_sorted)
+        # test that the distance weight values are the same
+        np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[2],
+                                     distance_row_sorted)
+
+
+@given(sampled_from(KNOWN_KERNELS))
+def test_sparse_mult(kernel):
+    from scipy.sparse import diags
+    _, X, _, _, residuals, neighbors, distances, cutoff = get_quakes_data()
+
+    N = X.shape[0]
+    k = X.shape[1]
+
+    meat_matrix = np.zeros((k, k))
+    row_of_ones = np.ones((1, N))
+    column_of_ones = np.ones((k, 1))
+    # neighbors_to_sparse will get the uniform or the kernel-ized version, as necessary
+    neighbors_sp = neighbors_to_sparse(neighbors, kernel, distances, cutoff)
+
+    neighbors_dense = neighbors_sp.toarray()
+    for i in range(N):
+        window = neighbors_dense[i, :]
+        X_i = X[i, ].reshape(-1, 1)
+        residuals_i = residuals[i, ].reshape(-1, 1)
+
+        #         k x 1       1 x n        1 x 1
+        XeeXh = (((X_i @ row_of_ones * residuals_i) *
+                  (column_of_ones @ (residuals.T * window.T))) @ X)
+        #                 k x 1                1 x n            n x k
+        meat_matrix += XeeXh
+    correct = meat_matrix / N
+
+    # I want element-wise multiplication of the residuals vector by the neighbors
+    # weights matrix. Sparse matrices don't have element-wise multiplication, but
+    # it's equivalent to cast the residuals as a sparse diagonal matrix, then do
+    # matrix multiplication. The diags function isn't smart enough to convert an
+    # (N, 1) array to a (N,) array, so manually reshape. Then, unlike numpy arrays,
+    # with sparse matrices, '*' means matrix multiplication, NOT element-wise.
+    resid_diag_matrix = diags(residuals.reshape(-1), offsets = 0, shape = (N, N))
+    resid_x_neighbors = resid_diag_matrix * neighbors_sp * resid_diag_matrix
+
+    proposed = (X.T @ resid_x_neighbors @ X) / N
+    np.testing.assert_allclose(correct, proposed)
+
+    bread = np.linalg.inv(X.T @ X)
+    correct_sandwich = N * (bread.T @ correct @ bread)
+    correct_se = np.sqrt(np.diag(correct_sandwich)).reshape(-1, 1)
+    proposed_sandwich = N * (bread.T @ proposed @ bread)
+    proposed_se = np.sqrt(np.diag(proposed_sandwich)).reshape(-1, 1)
+    np.testing.assert_allclose(correct_se, proposed_se)
