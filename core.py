@@ -2,11 +2,16 @@
 # coding: utf-8
 import numpy as np
 from ball_tree import BallTree  # TODO: force python to only look locally for import
-from faster_sandwich_filling import multiply_XeeX, CutoffError, GeographyError
+
+# TODO: rename faster_sandwich_filling to something more informative
+from faster_sandwich_filling import CutoffError, GeographyError, get_kernel_fn
+from faster_sandwich_filling import multiply_XeeX  # TODO: replace this with sparse ver
 import warnings
 # import statsmodels.api as sm
 from patsy import dmatrices, dmatrix
-from statsmodels.formula.api import ols
+# from statsmodels.formula.api import ols
+from scipy.sparse import coo_matrix
+from typedefs import ITYPE, DTYPE
 
 
 def check_geography(N, lat_long, cutoff):
@@ -292,3 +297,69 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
     sandwich = nobs * (bread.T @ filling @ bread)
     se = np.sqrt(np.diag(sandwich)).reshape(-1, 1)
     return se
+
+
+def neighbors_to_sparse_uniform(neighbors):
+    nrow = len(neighbors)
+    nnz = 0  # number of non-zeros
+    for i_neighbor in range(nrow):
+        nnz += len(neighbors[i_neighbor])
+    rows = np.empty(nnz, dtype=ITYPE)
+    cols = np.empty(nnz, dtype=ITYPE)
+    vals = np.ones(nnz,  dtype=DTYPE)  # noqa: E241
+    sparse_idx = 0
+    for row_idx in range(nrow):
+        neighbors_row = neighbors[row_idx]
+        n_neighbors = len(neighbors_row)
+        end_idx = sparse_idx + n_neighbors
+        rows[sparse_idx: end_idx] = row_idx
+        cols[sparse_idx: end_idx] = neighbors_row
+        sparse_idx += n_neighbors
+    assert rows.shape[0] == cols.shape[0] == nnz
+    # Finally, we construct a regular SciPy sparse matrix:
+    return coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
+
+
+def neighbors_to_sparse_nonuniform(neighbors, kernel, distances, cutoff):
+    kernel_fn = get_kernel_fn(kernel)
+    nrow = len(neighbors)
+
+    nnz = 0  # number of non-zeros
+    for i_neighbor in range(nrow):
+        nnz += len(neighbors[i_neighbor])
+    rows = np.empty(nnz, dtype=ITYPE)
+    cols = np.empty(nnz, dtype=ITYPE)
+    vals = np.empty(nnz, dtype=DTYPE)
+    sparse_idx = 0
+    for row_idx in range(nrow):
+        neighbors_row = neighbors[row_idx]
+        n_neighbors = len(neighbors_row)
+        end_idx = sparse_idx + n_neighbors
+        rows[sparse_idx: end_idx] = row_idx
+        cols[sparse_idx: end_idx] = neighbors_row
+        vals[sparse_idx: end_idx] = kernel_fn(distances[row_idx], cutoff)
+        sparse_idx += n_neighbors
+    assert rows.shape[0] == cols.shape[0] == vals.shape[0] == nnz
+
+    # Finally, we construct a regular SciPy sparse matrix:
+    return coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
+
+
+def neighbors_to_sparse(neighbors, kernel = 'uniform', distances = None, cutoff = None):
+    if kernel == 'uniform':
+        if cutoff is not None or distances is not None:
+            err_msg = ("this combination of parameters should never be "
+                       "necessary; it's a coding mistake")
+            raise ValueError(err_msg)
+        neighbors_sparse = neighbors_to_sparse_uniform(neighbors)
+    else:
+        if cutoff is None or distances is None:
+            err_msg = ("this combination of parameters should never be "
+                       "necessary; it's a coding mistake")
+            raise ValueError(err_msg)
+        if len(neighbors) != len(distances):
+            err_msg = "Number of neighbors and distances don't match."
+            raise ValueError(err_msg)
+        neighbors_sparse = neighbors_to_sparse_nonuniform(
+            neighbors, kernel, distances, cutoff)
+    return neighbors_sparse

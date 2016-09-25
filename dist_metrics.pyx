@@ -12,8 +12,8 @@ cimport numpy as np
 np.import_array()  # required in order to use C-API
 
 # borrowed from geopy, who borrow from the International Union of Geodesy and Geophysics
-cdef DTYPE_t EARTH_RADIUS = 6371.009
-
+#cdef DTYPE_t EARTH_RADIUS = 6371.009
+DEF EARTH_RADIUS = 6371.009
 ######################################################################
 # Numpy 1.3-1.4 compatibility utilities
 cdef DTYPE_t[:, ::1] get_memview_DTYPE_2D(
