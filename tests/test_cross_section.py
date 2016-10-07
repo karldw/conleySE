@@ -3,7 +3,8 @@
 import numpy as np
 from distance import great_circle
 from core import cross_section as conley_cross_section
-from core import CutoffError, neighbors_to_sparse, get_kernel_fn
+from core import (CutoffError, get_kernel_fn,
+                  _neighbors_to_sparse_uniform, _neighbors_to_sparse_nonuniform)
 from numpy.testing import assert_allclose
 from hypothesis import given, assume
 from hypothesis.strategies import floats, integers, one_of, composite, just, sampled_from
@@ -13,7 +14,9 @@ from geopy.distance import EARTH_RADIUS
 EPSILON = np.sqrt(np.finfo(float).eps)  # 1.4901161193847656e-08
 POSSIBLE_CUTOFFS = floats(min_value = EPSILON, max_value = EARTH_RADIUS * np.pi)
 RUN_SLOW_TESTS = False
-KNOWN_KERNELS = {'bartlett', 'epanechnikov', 'quartic', 'uniform'}
+KNOWN_KERNELS = {'bartlett', 'epanechnikov', 'uniform',
+                 # 'biweight', 'quartic', 'tricube', 'triweight',
+                 'cosine'}
 
 
 def great_circle_one_to_many(latlong_array, latlong_point):
@@ -223,10 +226,10 @@ def get_quakes_data():
     from patsy import dmatrices
     import feather
     quakes = feather.read_dataframe('tests/datasets/quakes.feather')
-    quakes_lat = quakes['lat'].reshape(-1, 1)
+    quakes_lat = quakes['lat'].values.reshape(-1, 1)
     # Subtract 180 because they've done 0 to 360.  See:
     # https://stackoverflow.com/questions/19879746/why-are-datasetquakes-longtitude-values-above-180
-    quakes_long = quakes['long'].reshape(-1, 1) - 180
+    quakes_long = quakes['long'].values.reshape(-1, 1) - 180
     quakes_lat_long = np.hstack((quakes_lat, quakes_long))
     cutoff = 100
 
@@ -243,30 +246,44 @@ def get_quakes_data():
     return y, X, quakes, quakes_lat_long, residuals, neighbors, distances, cutoff
 
 
+
 @given(sampled_from(KNOWN_KERNELS))
 def test_neighbors_to_sparse(kernel):
+    if RUN_SLOW_TESTS:
+        assume(kernel != 'uniform')
+        _, _, _, _, _, neighbors, distances, cutoff = get_quakes_data()
+
+        from scipy.sparse import find
+        neighbors_sparse_withdistance = _neighbors_to_sparse_nonuniform(
+            neighbors, kernel, distances, cutoff)
+        kernel_fn = get_kernel_fn(kernel)
+        for i in range(neighbors.shape[0]):
+            # get the indexes that will sort the row
+            neighbors_row_argsort = np.argsort(neighbors[i])
+            neighbors_row_sorted = neighbors[i][neighbors_row_argsort]
+
+            distance_row_sorted = kernel_fn(distances[i][neighbors_row_argsort], cutoff)
+
+            # test that the neighbor indexes are the same
+            np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[1],
+                                    neighbors_row_sorted)
+            # test that the distance weight values are the same
+            np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[2],
+                                    distance_row_sorted)
+
+
+def test_neighbors_to_sparse_uniform():
     _, _, _, _, _, neighbors, distances, cutoff = get_quakes_data()
 
     from scipy.sparse import find
-    neighbors_sparse_nodistance = neighbors_to_sparse(neighbors)
-    neighbors_sparse_withdistance = neighbors_to_sparse(neighbors, kernel,
-                                                        distances, cutoff)
-    kernel_fn = get_kernel_fn(kernel)
+    neighbors_sparse_nodistance = _neighbors_to_sparse_uniform(neighbors)
     for i in range(neighbors.shape[0]):
         # get the indexes that will sort the row
         neighbors_row_argsort = np.argsort(neighbors[i])
         neighbors_row_sorted = neighbors[i][neighbors_row_argsort]
-
-        distance_row_sorted = kernel_fn(distances[i][neighbors_row_argsort], cutoff)
-
         # test that the neighbor indexes are the same
         np.testing.assert_equal(find(neighbors_sparse_nodistance.getrow(i))[1],
-                                     neighbors_row_sorted)
-        np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[1],
-                                     neighbors_row_sorted)
-        # test that the distance weight values are the same
-        np.testing.assert_equal(find(neighbors_sparse_withdistance.getrow(i))[2],
-                                     distance_row_sorted)
+                                neighbors_row_sorted)
 
 
 @given(sampled_from(KNOWN_KERNELS))
@@ -280,8 +297,11 @@ def test_sparse_mult(kernel):
     meat_matrix = np.zeros((k, k))
     row_of_ones = np.ones((1, N))
     column_of_ones = np.ones((k, 1))
-    # neighbors_to_sparse will get the uniform or the kernel-ized version, as necessary
-    neighbors_sp = neighbors_to_sparse(neighbors, kernel, distances, cutoff)
+    if kernel == 'uniform':
+        neighbors_sp = _neighbors_to_sparse_uniform(neighbors)
+    else:
+        neighbors_sp = _neighbors_to_sparse_nonuniform(neighbors, kernel,
+                                                       distances, cutoff)
 
     neighbors_dense = neighbors_sp.toarray()
     for i in range(N):

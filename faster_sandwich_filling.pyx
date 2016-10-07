@@ -7,7 +7,9 @@ cimport numpy as np
 from typedefs cimport DTYPE_t, ITYPE_t
 
 from typedefs import DTYPE, ITYPE
+from libc.math cimport fabs, cos, M_PI_2, M_PI_4, pow
 np.import_array()
+
 
 
 class GeographyError(ValueError):
@@ -18,6 +20,8 @@ class CutoffError(GeographyError):
 
 def get_kernel_fn(kernel):
     """Get a kernel for the pointwise distances."""
+    # Note, these cython kernels are only ~ 3-4x faster than the numpy version.
+    # It might not be worth the hassle.
     kernel_dict = {'bartlett': bartlett,
                    'Bartlett': bartlett,
                    'triangle': bartlett,
@@ -25,7 +29,9 @@ def get_kernel_fn(kernel):
                    'epanechnikov': epanechnikov,
                    'quartic': biweight,
                    'biweight': biweight,
-                   'triweight': triweight
+                   'triweight': triweight,
+                   'tricube': tricube,
+                   'cosine': cosine,
     }
 
     if callable(kernel):
@@ -37,12 +43,12 @@ def get_kernel_fn(kernel):
         error_message = "Unknown kernel specified. Please provide one of these, or your own function: {}".format(known_kernels)
         raise KeyError(error_message)
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cpdef DTYPE_t[:] bartlett(DTYPE_t[:] dists, DTYPE_t cutoff):
     """Weight distances by the Bartlett (triangular) kernel.
 
@@ -53,19 +59,20 @@ cpdef DTYPE_t[:] bartlett(DTYPE_t[:] dists, DTYPE_t cutoff):
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
     cdef ITYPE_t i
+    cdef DTYPE_t u
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:
         for i in range(dists.shape[0]):
-            #TODO(karl): verify math
-            weights[i] = 1 - (dists[i] / cutoff)
+            u = dists[i] / cutoff
+            weights[i] = 1 - fabs(u)
     return weights
 
-# Commented out for debugging.
-# @cython.embedsignature(True)  # embed function signature in docstring
-# @cython.boundscheck(False) # turn off bounds-checking for entire function
-# @cython.wraparound(False)  # turn off negative indexing
-# @cython.initializedcheck(False)  # don't check that data are initialized
-# @cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
+
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+@cython.cdivision(True)  # revert to the faster C division rules (make sure your code never divides by zero or a negative number!)
 cpdef DTYPE_t[:] epanechnikov(DTYPE_t[:] dists, DTYPE_t cutoff):
     """Weight distances by the Epanechnikov kernel.
 
@@ -76,15 +83,17 @@ cpdef DTYPE_t[:] epanechnikov(DTYPE_t[:] dists, DTYPE_t cutoff):
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
     cdef ITYPE_t i
-    cdef DTYPE_t inv_cutoff_sq, multiplier
+    cdef DTYPE_t u
+    # cdef DTYPE_t inv_cutoff_sq, multiplier
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:
-        inv_cutoff_sq = 1 / (cutoff**2)
-        multiplier = 0.75 / cutoff
+        # inv_cutoff_sq = 1 / (cutoff**2)
+        # multiplier = 0.75 / cutoff
         for i in range(dists.shape[0]):
-            #TODO(karl): verify math
-            weights[i] = multiplier * (1 - inv_cutoff_sq * dists[i]**2)
+            u = dists[i] / cutoff
+            weights[i] = 0.75 * (1 - pow(u, 2))
     return weights
+
 
 # Commented out for debugging.
 # @cython.embedsignature(True)  # embed function signature in docstring
@@ -102,13 +111,16 @@ cpdef DTYPE_t[:] biweight(DTYPE_t[:] dists, DTYPE_t cutoff):
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
     raise NotImplementedError
+    # The results here are always zero -- why?
     cdef ITYPE_t i
+    cdef DTYPE_t u
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:
         for i in range(dists.shape[0]):
-            #TODO(karl): write math
-            pass
+            u = dists[i] / cutoff
+            weights[i] = 15 / 16 * pow(1 - pow(u, 2), 2)
     return weights
+
 
 # Commented out for debugging.
 # @cython.embedsignature(True)  # embed function signature in docstring
@@ -128,12 +140,71 @@ cpdef DTYPE_t[:] triweight(DTYPE_t[:] dists, DTYPE_t cutoff):
     Output: A memoryview of weights (float64) in the range [0, 1].
     """
     raise NotImplementedError
+    # The results here are off by a factor of 32/35, as if they're not
+    # being properly multiplied -- why?
     cdef ITYPE_t i
+    cdef DTYPE_t u
     cdef DTYPE_t[:] weights = np.empty_like(dists)
     with nogil:
         for i in range(dists.shape[0]):
-            #TODO(karl): weite math
-            pass
+            u = dists[i] / cutoff
+            weights[i] = (35 / 32) * pow(1 - pow(u, 2), 3)
+    return weights
+
+
+# Commented out for debugging.
+# @cython.embedsignature(True)  # embed function signature in docstring
+# @cython.boundscheck(False) # turn off bounds-checking for entire function
+# @cython.wraparound(False)  # turn off negative indexing
+# @cython.initializedcheck(False)  # don't check that data are initialized
+# revert to the faster C division rules
+# (make sure your code never divides by zero or a negative number!)
+# @cython.cdivision(True)
+cpdef DTYPE_t[:] tricube(DTYPE_t[:] dists, DTYPE_t cutoff):
+    """Weight distances by the tricube kernel.
+
+    Important: The function _does not_ check weather the distance is outside the
+    cutoff.  You should do this elsewhere.
+
+    Input: A memoryview of distances (float64) and a cutoff (float64).
+    Output: A memoryview of weights (float64) in the range [0, 1].
+    """
+    raise NotImplementedError
+    # The results here are always zero -- why?
+    cdef ITYPE_t i
+    cdef DTYPE_t u
+    cdef DTYPE_t[:] weights = np.empty_like(dists)
+    with nogil:
+        for i in range(dists.shape[0]):
+            u = dists[i] / cutoff
+            weights[i] = (70 / 81) * pow(1 - pow(fabs(u), 3), 3)
+    return weights
+
+
+# Commented out for debugging.
+@cython.embedsignature(True)  # embed function signature in docstring
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative indexing
+@cython.initializedcheck(False)  # don't check that data are initialized
+# revert to the faster C division rules
+# (make sure your code never divides by zero or a negative number!)
+@cython.cdivision(True)
+cpdef DTYPE_t[:] cosine(DTYPE_t[:] dists, DTYPE_t cutoff):
+    """Weight distances by the cosine kernel.
+
+    Important: The function _does not_ check weather the distance is outside the
+    cutoff.  You should do this elsewhere.
+
+    Input: A memoryview of distances (float64) and a cutoff (float64).
+    Output: A memoryview of weights (float64) in the range [0, 1].
+    """
+    cdef ITYPE_t i
+    cdef DTYPE_t u
+    cdef DTYPE_t[:] weights = np.empty_like(dists)
+    with nogil:
+        for i in range(dists.shape[0]):
+            u = dists[i] / cutoff
+            weights[i] = M_PI_4 * cos(M_PI_2 * u)
     return weights
 
 

@@ -5,13 +5,18 @@ from ball_tree import BallTree  # TODO: force python to only look locally for im
 
 # TODO: rename faster_sandwich_filling to something more informative
 from faster_sandwich_filling import CutoffError, GeographyError, get_kernel_fn
-from faster_sandwich_filling import multiply_XeeX  # TODO: replace this with sparse ver
+# from faster_sandwich_filling import multiply_XeeX
 import warnings
 # import statsmodels.api as sm
 from patsy import dmatrices, dmatrix
 # from statsmodels.formula.api import ols
-from scipy.sparse import coo_matrix
+from scipy import sparse
 from typedefs import ITYPE, DTYPE
+
+# TODO: incorporate caching for the panel
+# from cachey import Cache
+# cache = Cache(1e9)  # max cache is 1 GB  TODO: is this reasonable?
+# BallTree_cached = cache.memoize(BallTree)
 
 
 def check_geography(N, lat_long, cutoff):
@@ -96,10 +101,6 @@ def cross_section(formula_like, data, lat_long, cutoff, kernel = 'uniform'):
     # Raise an exception if the data look funky
     nobs = check_parameters(y, X, lat_long, cutoff)
 
-    # I have no idea if this leaf_size is reasonable.  If running out of memory,
-    # divide N by a larger number.
-    # 40 is the default.
-    leaf_size = max(40, nobs // 1000)
     # TODO: consider a more sophisticated way of calculating residuals (e.g. one that
     # allows for fancy fixed effects)
     betahat, _, rank, _ = np.linalg.lstsq(X, y)
@@ -107,17 +108,9 @@ def cross_section(formula_like, data, lat_long, cutoff, kernel = 'uniform'):
         raise np.linalg.LinAlgError('X matrix is not full rank!')
     del rank
     residuals = (y - X @ betahat)
-    balltree = BallTree(lat_long, metric = 'greatcircle', leaf_size = leaf_size)
-    if kernel == 'uniform':
-        neighbors = balltree.query_radius(lat_long, r = cutoff)
-        filling = multiply_XeeX(neighbors, residuals, X, kernel)
-    else:
-        neighbors, neighbor_distances = balltree.query_radius(
-            lat_long, r = cutoff, return_distance = True)
-        filling = multiply_XeeX(neighbors, residuals, X, kernel,
-                                distances = neighbor_distances, cutoff = cutoff)
-        del neighbor_distances
-    del balltree, neighbors, y, residuals
+    sigma = _cross_section_calculate_sigma(lat_long, residuals, cutoff,
+                                           kernel, metric = 'greatcircle')
+    filling = (X.T @ sigma @ X) / nobs
 
     bread = np.linalg.inv(X.T @ X)
     sandwich = nobs * (bread.T @ filling @ bread)
@@ -242,8 +235,7 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
         'triweight'. (Bartlett is the same as triangle. Quartic is the same as
         biweight.)
     """
-    from cachey import Cache  # TODO: do I need caching?  (I don't think so?)
-    cache = Cache(1e9)  # max cache is 1 GB  TODO: is this reasonable?
+
     y, X = dmatrices(formula_like, data, eval_env = 1, NA_action = 'raise')
     # TODO: handle cases where people provide weird formulas?
 
@@ -260,53 +252,29 @@ def panel(formula_like, data, lat_long, time, group, dist_cutoff, time_cutoff = 
     # Raise an exception if the data look funky
     nobs = check_parameters_panel(y, X, time, lat_long, dist_cutoff)
 
-    # TODO: I have no idea if this leaf_size is reasonable.
-    # If running out of memory, divide N by a larger number.
-    # TODO: consider limiting available memory
-    # 40 is the default.
-    leaf_size = max(40, nobs // 1000)
-
     # TODO: use statsmodels OLS?
     betahat, _, rank, _ = np.linalg.lstsq(X, y)
     if rank != X.shape[1]:
         raise np.linalg.LinAlgError('X matrix is not full rank!')
     residuals = (y - X @ betahat)
-
-    BallTree_cached = cache.memoize(BallTree)
-    # TODO: allow for vincenty
-    balltree = BallTree_cached(lat_long, metric = 'greatcircle', leaf_size = leaf_size)
-    query_radius_cached = cache.memoize(balltree.query_radius)
-
-    # START HERE.
-    # The code in multiply_XeeX wasn't written for panel data.
-    # Think about how I want to do the joint time/space deal.
-    if dist_kernel == 'uniform':
-        neighbors = query_radius_cached(lat_long, r = dist_cutoff)
-        raise NotImplementedError()
-        # filling = multiply_XeeX(neighbors, residuals, X, dist_kernel)
-    else:
-        neighbors, neighbor_distances = query_radius_cached(
-            lat_long, r = dist_cutoff, return_distance = True)
-        raise NotImplementedError()
-        # filling = multiply_XeeX(neighbors, residuals, X, dist_kernel,
-        #                         distances = neighbor_distances, cutoff = dist_cutoff)
-        del neighbor_distances
-    del balltree, neighbors, y, residuals
-
+    sigma = _panel_calculate_sigma(lat_long, residuals, dist_cutoff, time_cutoff,
+                                   dist_kernel, time_kernel, metric = 'greatcircle')
+    # filling = ...
     bread = np.linalg.inv(X.T @ X)
     sandwich = nobs * (bread.T @ filling @ bread)
     se = np.sqrt(np.diag(sandwich)).reshape(-1, 1)
     return se
 
 
-def neighbors_to_sparse_uniform(neighbors):
+def _neighbors_to_sparse_uniform(neighbors):
+    """"""
     nrow = len(neighbors)
     nnz = 0  # number of non-zeros
     for i_neighbor in range(nrow):
         nnz += len(neighbors[i_neighbor])
     rows = np.empty(nnz, dtype=ITYPE)
     cols = np.empty(nnz, dtype=ITYPE)
-    vals = np.ones(nnz,  dtype=DTYPE)  # noqa: E241
+    vals = np.ones(nnz, dtype=DTYPE)
     sparse_idx = 0
     for row_idx in range(nrow):
         neighbors_row = neighbors[row_idx]
@@ -316,11 +284,12 @@ def neighbors_to_sparse_uniform(neighbors):
         cols[sparse_idx: end_idx] = neighbors_row
         sparse_idx += n_neighbors
     assert rows.shape[0] == cols.shape[0] == nnz
-    # Finally, we construct a regular SciPy sparse matrix:
-    return coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
+    # Finally, we construct a regular SciPy sparse matrix (CSR style):
+    return sparse.coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
 
 
-def neighbors_to_sparse_nonuniform(neighbors, kernel, distances, cutoff):
+def _neighbors_to_sparse_nonuniform(neighbors, kernel, distances, cutoff):
+    """"""
     kernel_fn = get_kernel_fn(kernel)
     nrow = len(neighbors)
 
@@ -341,25 +310,82 @@ def neighbors_to_sparse_nonuniform(neighbors, kernel, distances, cutoff):
         sparse_idx += n_neighbors
     assert rows.shape[0] == cols.shape[0] == vals.shape[0] == nnz
 
-    # Finally, we construct a regular SciPy sparse matrix:
-    return coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
+    # Finally, we construct a regular SciPy sparse matrix (CSR style):
+    return sparse.coo_matrix((vals, (rows, cols)), shape=(nrow, nrow)).tocsr()
 
 
-def neighbors_to_sparse(neighbors, kernel = 'uniform', distances = None, cutoff = None):
+def _cross_section_calculate_sigma(lat_long, residuals, cutoff, kernel, metric):
+    nobs = lat_long.shape[0]
+    # I have no idea if this leaf_size is reasonable.  If running out of memory,
+    # divide N by a larger number. 40 is the default.
+    leaf_size = max(40, nobs // 1000)
+    balltree = BallTree(lat_long, metric = metric, leaf_size = leaf_size)
+
     if kernel == 'uniform':
-        if cutoff is not None or distances is not None:
-            err_msg = ("this combination of parameters should never be "
-                       "necessary; it's a coding mistake")
-            raise ValueError(err_msg)
-        neighbors_sparse = neighbors_to_sparse_uniform(neighbors)
+        neighbors = balltree.query_radius(lat_long, r = cutoff)
+        neighbors_sp = _neighbors_to_sparse_uniform(neighbors)
+
     else:
-        if cutoff is None or distances is None:
-            err_msg = ("this combination of parameters should never be "
-                       "necessary; it's a coding mistake")
-            raise ValueError(err_msg)
-        if len(neighbors) != len(distances):
-            err_msg = "Number of neighbors and distances don't match."
-            raise ValueError(err_msg)
-        neighbors_sparse = neighbors_to_sparse_nonuniform(
-            neighbors, kernel, distances, cutoff)
-    return neighbors_sparse
+        neighbors, neighbor_distances = balltree.query_radius(
+            lat_long, r = cutoff, return_distance = True)
+        neighbors_sp = _neighbors_to_sparse_nonuniform(
+            neighbors, kernel, neighbor_distances, cutoff)
+        del neighbor_distances
+    del neighbors, balltree, leaf_size
+
+    if neighbors_sp.nnz == nobs**2:
+        err_msg = ("Every point is a neighbor of every other. "
+                   "You must use a smaller cutoff value.")
+        raise CutoffError(err_msg)
+
+    # I want element-wise multiplication of the residuals vector by the neighbors weights
+    # matrix. Sparse matrices don't have element-wise multiplication, but it's equivalent
+    # to cast the residuals as a sparse diagonal matrix, then do matrix multiplication.
+    # The diags function isn't smart enough to convert an (N, 1) array to a (N,) array,
+    # so manually reshape. Then, unlike numpy arrays, with sparse matrices, '*' means
+    # matrix multiplication, NOT element-wise.
+    resid_diag_matrix = sparse.diags(residuals.reshape(-1),
+                                     offsets = 0, shape = (nobs, nobs))
+    resid_x_neighbors = resid_diag_matrix * neighbors_sp * resid_diag_matrix
+    return resid_x_neighbors
+
+
+def _panel_calculate_sigma(lat_long, residuals, dist_cutoff, time_cutoff,
+        dist_kernel, time_kernel, metric):
+
+    raise NotImplementedError
+
+    nobs = lat_long.shape[0]
+    # I have no idea if this leaf_size is reasonable.  If running out of memory,
+    # divide N by a larger number. 40 is the default.
+    leaf_size = max(40, nobs // 1000)
+
+    # balltree = BallTree_cached(lat_long, metric = metric, leaf_size = leaf_size)
+    # query_radius_cached = cache.memoize(balltree.query_radius)
+    balltree = BallTree(lat_long, metric = metric, leaf_size = leaf_size)
+    if kernel == 'uniform':
+        neighbors = balltree.query_radius(lat_long, r = cutoff)
+        neighbors_sp = _neighbors_to_sparse_uniform(neighbors)
+    else:
+        neighbors, neighbor_distances = balltree.query_radius(
+            lat_long, r = cutoff, return_distance = True)
+        neighbors_sp = _neighbors_to_sparse_nonuniform(
+            neighbors, kernel, neighbor_distances, cutoff)
+        del neighbor_distances
+    del neighbors, balltree, leaf_size
+
+    if neighbors_sp.nnz == nobs**2:
+        err_msg = ("Every point is a neighbor of every other. "
+                   "You must use a smaller cutoff value.")
+        raise CutoffError(err_msg)
+
+    # I want element-wise multiplication of the residuals vector by the neighbors weights
+    # matrix. Sparse matrices don't have element-wise multiplication, but it's equivalent
+    # to cast the residuals as a sparse diagonal matrix, then do matrix multiplication.
+    # The diags function isn't smart enough to convert an (N, 1) array to a (N,) array,
+    # so manually reshape. Then, unlike numpy arrays, with sparse matrices, '*' means
+    # matrix multiplication, NOT element-wise.
+    resid_diag_matrix = sparse.diags(residuals.reshape(-1),
+                                     offsets = 0, shape = (nobs, nobs))
+    resid_x_neighbors = resid_diag_matrix * neighbors_sp * resid_diag_matrix
+    return resid_x_neighbors
